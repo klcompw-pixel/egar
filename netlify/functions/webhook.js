@@ -4,6 +4,7 @@
 // containing the secret token.
 
 exports.handler = async function (event, context) {
+  const DISCORD_WEBHOOK = process.env.validingawpxeno || process.env.mahesaweda77
   const TOKEN = process.env.WEBHOOK_TOKEN
 
   const headerToken = (event.headers['x-webhook-token'] || event.headers['X-Webhook-Token'] || '').toString()
@@ -73,4 +74,5 @@ exports.handler = async function (event, context) {
           return { statusCode: 502, body: 'Forwarding error: ' + String(err) }
         }
       }
+
 
