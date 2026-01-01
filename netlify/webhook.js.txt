@@ -1,0 +1,55 @@
+// Netlify Function: securely forward requests to a Discord webhook.
+// Reads Discord webhook URL from env: `validingawpxeno` or `mahesaweda77`.
+// Requires a verification token in env: `WEBHOOK_TOKEN`.
+// Clients must send header `x-webhook-token` and `x-timestamp`.
+
+const crypto = require('crypto')
+
+exports.handler = async function (event) {
+  const DISCORD_WEBHOOK = process.env.validingawpxeno || process.env.mahesaweda77 || process.env.DISCORD_WEBHOOK
+  const TOKEN = process.env.WEBHOOK_TOKEN
+
+  if (!DISCORD_WEBHOOK || !TOKEN) {
+    return { statusCode: 500, body: 'Server misconfigured' }
+  }
+
+  // normalize headers
+  const headers = {}
+  for (const k in event.headers || {}) headers[k.toLowerCase()] = event.headers[k]
+
+  const headerToken = (headers['x-webhook-token'] || '').toString()
+  if (headerToken !== TOKEN) return { statusCode: 401, body: 'Unauthorized' }
+
+  const tsHeader = (headers['x-timestamp'] || '').toString()
+  if (!tsHeader) return { statusCode: 400, body: 'Missing x-timestamp header' }
+  const now = Math.floor(Date.now() / 1000)
+  const ts = parseInt(tsHeader, 10)
+  if (!ts || Math.abs(now - ts) > 60) return { statusCode: 400, body: 'Invalid or stale timestamp' }
+
+  const sigHeader = (headers['x-signature'] || '').toString()
+  if (sigHeader) {
+    try {
+      const payload = `${tsHeader}.${event.body || ''}`
+      const expected = crypto.createHmac('sha256', TOKEN).update(payload).digest('hex')
+      const a = Buffer.from(expected, 'hex')
+      const b = Buffer.from(sigHeader, 'hex')
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        return { statusCode: 401, body: 'Invalid signature' }
+      }
+    } catch (e) {
+      return { statusCode: 400, body: 'Signature verification error' }
+    }
+  }
+
+  try {
+    const res = await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: event.body
+    })
+    const text = await res.text()
+    return { statusCode: res.status, body: text }
+  } catch (err) {
+    return { statusCode: 502, body: 'Forwarding error' }
+  }
+}
