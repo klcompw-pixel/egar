@@ -1,28 +1,17 @@
-// Simple Netlify Function to forward requests to a Discord webhook.
-// It expects an environment variable named `validingawpxeno` (or legacy
-// `mahesaweda77`) containing the Discord webhook URL, and `WEBHOOK_TOKEN`
-// containing the secret token.
+
 
 exports.handler = async function (event, context) {
-  const DISCORD_WEBHOOK = process.env.validingawpxeno || process.env.mahesaweda77
+
   const TOKEN = process.env.WEBHOOK_TOKEN
 
   const headerToken = (event.headers['x-webhook-token'] || event.headers['X-Webhook-Token'] || '').toString()
   if (!TOKEN || headerToken !== TOKEN) {
     return {
-      // Netlify Function: forward to Discord webhook with timestamp + optional HMAC verification
-      // Expects env vars:
-      //  - validingawpxeno (Discord webhook URL) or mahesaweda77
-      //  - WEBHOOK_TOKEN (secret token for clients)
-      // Client should send headers:
-      //  - x-webhook-token: required
-      //  - x-timestamp: unix epoch seconds (string)
-      //  - x-signature: optional, hex HMAC-SHA256 of `${timestamp}.${body}` using WEBHOOK_TOKEN
 
       const crypto = require('crypto')
 
       exports.handler = async function (event, context) {
-        const DISCORD_WEBHOOK = process.env.validingawpxeno || process.env.mahesaweda77
+
         const TOKEN = process.env.WEBHOOK_TOKEN
 
         if (!TOKEN || !DISCORD_WEBHOOK) {
@@ -74,5 +63,6 @@ exports.handler = async function (event, context) {
           return { statusCode: 502, body: 'Forwarding error: ' + String(err) }
         }
       }
+
 
 
