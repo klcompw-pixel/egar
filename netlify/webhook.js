@@ -52,4 +52,5 @@ exports.handler = async function (event) {
   } catch (err) {
     return { statusCode: 502, body: 'Forwarding error' }
   }
+
 }
