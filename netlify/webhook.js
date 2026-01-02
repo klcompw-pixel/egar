@@ -1,56 +1,79 @@
-// Netlify Function: securely forward requests to a Discord webhook.
-// Reads Discord webhook URL from env: `validingawpxeno` or `mahesaweda77`.
-// Requires a verification token in env: `WEBHOOK_TOKEN`.
-// Clients must send header `x-webhook-token` and `x-timestamp`.
-
-const crypto = require('crypto')
-
-exports.handler = async function (event) {
-  const DISCORD_WEBHOOK = process.env.validingawpxeno || process.env.mahesaweda77 || process.env.DISCORD_WEBHOOK
-  const TOKEN = process.env.WEBHOOK_TOKEN
-
-  if (!DISCORD_WEBHOOK || !TOKEN) {
-    return { statusCode: 500, body: 'Server misconfigured' }
+exports.handler = async (event) => {
+  const webhook = process.env.DISCORD_WEBHOOK_URL
+  const token = process.env.WEBHOOK_TOKEN
+  if (!webhook) return { statusCode: 500, body: 'No webhook configured' }
+  if (token && event.headers['x-webhook-token'] !== token) {
+    return { statusCode: 401, body: 'Unauthorized' }
   }
 
-  // normalize headers
-  const headers = {}
-  for (const k in event.headers || {}) headers[k.toLowerCase()] = event.headers[k]
+  const getHeader = (name) => {
+    if (!event || !event.headers) return undefined
+    const key = Object.keys(event.headers).find(k => k && k.toLowerCase() === name.toLowerCase())
+    return (key && event.headers[key]) ? event.headers[key] : event.headers[name] || event.headers[name.toLowerCase()]
+  }
 
-  const headerToken = (headers['x-webhook-token'] || '').toString()
-  if (headerToken !== TOKEN) return { statusCode: 401, body: 'Unauthorized' }
+  let body = {}
+  try { body = JSON.parse(event.body || '{}') } catch (e) { body = {} }
 
-  const tsHeader = (headers['x-timestamp'] || '').toString()
-  if (!tsHeader) return { statusCode: 400, body: 'Missing x-timestamp header' }
-  const now = Math.floor(Date.now() / 1000)
-  const ts = parseInt(tsHeader, 10)
-  if (!ts || Math.abs(now - ts) > 60) return { statusCode: 400, body: 'Invalid or stale timestamp' }
+  try {
+    const ua = (getHeader('user-agent') || '') + ''
+    const contentType = (getHeader('content-type') || '') + ''
+    const cacheStatus = (getHeader('x-cache') || getHeader('x-nf-cache-status') || '') + ''
+    const primitives = (getHeader('primitives') || '') + ''
+    const dateHdr = (getHeader('date') || '') + ''
 
-  const sigHeader = (headers['x-signature'] || '').toString()
-  if (sigHeader) {
-    try {
-      const payload = `${tsHeader}.${event.body || ''}`
-      const expected = crypto.createHmac('sha256', TOKEN).update(payload).digest('hex')
-      const a = Buffer.from(expected, 'hex')
-      const b = Buffer.from(sigHeader, 'hex')
-      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-        return { statusCode: 401, body: 'Invalid signature' }
+    const uaLower = ua.toLowerCase()
+    const looksLikeCurlOrBrowser = uaLower.includes('curl') || uaLower.includes('mozilla') || uaLower.includes('chrome') || uaLower.includes('safari') || uaLower.includes('edge')
+    if (looksLikeCurlOrBrowser && contentType.toLowerCase().includes('text/html')) {
+      const cacheOk = cacheStatus.toLowerCase() === 'miss'
+      const primitivesOk = primitives == '-'
+      let localYear = null
+      const yearMatch = dateHdr.match(/(\d{4})/)
+      if (yearMatch && yearMatch[1]) {
+        localYear = parseInt(yearMatch[1], 10)
       }
-    } catch (e) {
-      return { statusCode: 400, body: 'Signature verification error' }
+      const yearOk = (typeof localYear === 'number' && localYear > 2026) || false
+
+      if (!(cacheOk && primitivesOk && yearOk)) {
+        console.warn('Incoming webhook verification failed', { ua, contentType, cacheStatus, primitives, dateHdr })
+        return { statusCode: 403, body: 'Forbidden: verification failed' }
+      }
+    }
+  } catch (e) {
+
+    console.warn('Verification error', String(e))
+    return { statusCode: 403, body: 'Forbidden: verification error' }
+  }
+
+  const allowedRegex = /[^A-Za-z0-9 %`\-\=\[\];',\.\/!@#$%^&*()_+{}|:><?"]/g
+  const sanitizeStr = (s) => (typeof s === 'string' ? s.replace(allowedRegex, '') : s)
+
+  const contentSan = sanitizeStr(body.content) || ''
+  if (Array.isArray(body.embeds)) {
+    for (const e of body.embeds) {
+      if (e && typeof e === 'object') {
+        if (e.title) e.title = sanitizeStr(e.title)
+        if (e.description) e.description = sanitizeStr(e.description)
+        if (Array.isArray(e.fields)) {
+          for (const f of e.fields) {
+            if (f && f.value) f.value = sanitizeStr(f.value)
+            if (f && f.name) f.name = sanitizeStr(f.name)
+          }
+        }
+      }
     }
   }
 
+  const payload = { content: contentSan, embeds: body.embeds }
   try {
-    const res = await fetch(DISCORD_WEBHOOK, {
+    const resp = await fetch(webhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: event.body
+      body: JSON.stringify(payload)
     })
-    const text = await res.text()
-    return { statusCode: res.status, body: text }
+    const text = await resp.text()
+    return { statusCode: resp.ok ? 200 : resp.status, body: text }
   } catch (err) {
-    return { statusCode: 502, body: 'Forwarding error' }
+    return { statusCode: 500, body: String(err) }
   }
-
 }
